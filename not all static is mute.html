@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>n o t  a l l  s t a t i c  i s  m u t e</title>
+<style>
+  body {
+    margin: 0;
+    background: #ffffff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+  canvas {
+    border: 1px solid #000;
+  }
+  .caption {
+    width: 700px;
+    margin-top: 14px;
+    font-size: 13px;
+    line-height: 1.35;
+    color: #111;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="canvas" width="700" height="700"></canvas>
+
+<audio id="bgAudio"
+  src="https://archive.org/download/4thest/4thEst.mp3"
+  crossorigin="anonymous">
+</audio>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const audio = document.getElementById("bgAudio");
+
+const W = canvas.width;
+const H = canvas.height;
+
+const SEGMENT_DURATION = 2;
+let audioReady = false;
+
+// =====================
+// AUDIO MAPPING
+// parametro: mouseX / canvas.width * audio.duration
+// =====================
+function mouseToTime(x) {
+  const dur = audio.duration || 60;
+  return Math.min((x / W) * dur, dur - SEGMENT_DURATION);
+}
+
+// =====================
+// MOUSE TRACKING (reattivo)
+// =====================
+let mouse = { x: W/2, y: H/2, stillness: 0 };
+let last = null;
+
+canvas.addEventListener("mousemove", e => {
+  const r = canvas.getBoundingClientRect();
+  const x = e.clientX - r.left;
+  const y = e.clientY - r.top;
+
+  if (last) {
+    const d = Math.hypot(x - last.x, y - last.y);
+    // risposta molto rapida
+    mouse.stillness += (d < 1.2) ? 0.12 : -0.18;
+    mouse.stillness = Math.max(0, Math.min(mouse.stillness, 1));
+  }
+
+  mouse.x = x;
+  mouse.y = y;
+  last = { x, y };
+});
+
+// =====================
+// CLICK = ESTRAZIONE AUDIO
+// =====================
+canvas.addEventListener("click", e => {
+  if (!audioReady) return;
+  const r = canvas.getBoundingClientRect();
+  const x = e.clientX - r.left;
+
+  audio.currentTime = mouseToTime(x);
+  audio.play().catch(()=>{});
+  setTimeout(() => audio.pause(), SEGMENT_DURATION * 1000);
+});
+
+// =====================
+// RUMORE TV (più granuloso)
+// =====================
+function drawNoise() {
+  const size = 2; // pixel grossi
+  for (let y = 0; y < H; y += size) {
+    for (let x = 0; x < W; x += size) {
+      const v = 200 + Math.random() * 100;
+      ctx.fillStyle = `rgb(${v},${v},${v})`;
+      ctx.fillRect(x, y, size, size);
+    }
+  }
+
+  for (let y = 0; y < H; y += 5) {
+    ctx.fillStyle = `rgba(0,0,0,${Math.random()*0.08})`;
+    ctx.fillRect(0, y + Math.random()*2, W, 1);
+  }
+}
+
+// =====================
+// ADDENSAMENTO IRREGOLARE
+// =====================
+function drawCluster() {
+  if (mouse.stillness < 0.02) return;
+
+  const strength = mouse.stillness;
+  const blobs = 220;
+  const spread = 30;
+
+  for (let i = 0; i < blobs; i++) {
+    const ox = (Math.random() - 0.5) * spread;
+    const oy = (Math.random() - 0.5) * spread;
+
+    const w = 2 + Math.random() * 5;
+    const h = 3 + Math.random() * 5;
+
+    const r = 160 + Math.random()*40;
+    const g = 175 + Math.random()*30;
+    const b = 70 + Math.random()*40;
+
+    ctx.fillStyle = `rgba(${r},${g},${b},${0.25 * strength})`;
+    ctx.fillRect(mouse.x + ox, mouse.y + oy, w, h);
+  }
+
+  // grana nera aggressiva
+  for (let i = 0; i < 300; i++) {
+    const ox = (Math.random() - 0.5) * spread;
+    const oy = (Math.random() - 0.5) * spread;
+    ctx.fillStyle = `rgba(0,0,0,${0.35 * strength})`;
+    ctx.fillRect(mouse.x + ox, mouse.y + oy, 2, 2);
+  }
+}
+
+// =====================
+// TYPEWRITER LOADING
+// =====================
+let text = "audio loading";
+let cursor = 0;
+
+function drawLoading() {
+  if (audioReady) return;
+  cursor += 1;
+  ctx.fillStyle = "#000";
+  ctx.font = "22px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText(text.slice(0, Math.floor(cursor)), W/2, H/2);
+}
+
+// =====================
+// LOOP
+// =====================
+function animate() {
+  ctx.clearRect(0,0,W,H);
+  drawNoise();
+  drawCluster();
+  drawLoading();
+  requestAnimationFrame(animate);
+}
+animate();
+
+audio.addEventListener("canplaythrough", () => {
+  audioReady = true;
+});
+</script>
+
+</body>
+</html>
