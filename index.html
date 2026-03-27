@@ -42,29 +42,42 @@ const H = canvas.height;
 const SEGMENT_DURATION = 3;
 
 let audioUnlocked = false;
+let audioReady = false;
+
 let clicks = [];
 
 // =====================
-// WAIT FOR METADATA
+// AUDIO STATE
 // =====================
 audio.addEventListener("loadedmetadata", () => {
-  // metadata ready
+  audioReady = true;
 });
 
+audio.addEventListener("canplay", () => {
+  audioReady = true;
+});
+
+// fallback safety
+setTimeout(() => {
+  if (!isFinite(audio.duration)) {
+    audio.load();
+  }
+}, 2000);
+
 // =====================
-// AUDIO MAPPING
+// AUDIO MAP
 // =====================
 function mouseToTime(x) {
   const dur = (isFinite(audio.duration) && audio.duration > 0)
     ? audio.duration
-    : 60; // fallback
+    : 60;
 
   const t = (x / W) * dur;
   return Math.min(t, dur - SEGMENT_DURATION);
 }
 
 // =====================
-// UNLOCK AUDIO (sync-safe)
+// UNLOCK
 // =====================
 function unlockAudio() {
   if (audioUnlocked) return;
@@ -89,18 +102,14 @@ canvas.addEventListener("pointerdown", (e) => {
   const x = e.clientX - rect.left;
   const y = e.clientY - rect.top;
 
-  // visual feedback
   clicks.push({ x, y, life: 1 });
 
-  // unlock audio FIRST
   unlockAudio();
 
-  // ensure metadata is loaded
   if (!isFinite(audio.duration)) {
     audio.load();
   }
 
-  // IMPORTANT: direct call in gesture context
   const t = mouseToTime(x);
   audio.currentTime = t;
 
@@ -112,6 +121,7 @@ canvas.addEventListener("pointerdown", (e) => {
   setTimeout(() => {
     audio.pause();
   }, SEGMENT_DURATION * 1000);
+
 }, { passive: false });
 
 // =====================
@@ -134,11 +144,20 @@ function drawClicks() {
     ctx.arc(c.x, c.y, 10 * c.life, 0, Math.PI * 2);
     ctx.strokeStyle = `rgba(0,0,0,${c.life})`;
     ctx.stroke();
-
     c.life -= 0.03;
   });
 
   clicks = clicks.filter(c => c.life > 0);
+}
+
+// loading text
+function drawLoading() {
+  if (audioReady) return;
+
+  ctx.fillStyle = "#000";
+  ctx.font = "20px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText("audio loading", W/2, H/2);
 }
 
 // =====================
@@ -146,8 +165,11 @@ function drawClicks() {
 // =====================
 function animate() {
   ctx.clearRect(0, 0, W, H);
+
   drawNoise();
   drawClicks();
+  drawLoading();
+
   requestAnimationFrame(animate);
 }
 animate();
