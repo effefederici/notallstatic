@@ -20,14 +20,6 @@
     border: 1px solid #000;
     touch-action: none;
   }
-
-  .caption {
-    width: 700px;
-    margin-top: 14px;
-    font-size: 13px;
-    line-height: 1.35;
-    color: #111;
-  }
 </style>
 </head>
 
@@ -49,8 +41,12 @@ const W = canvas.width;
 const H = canvas.height;
 
 const SEGMENT_DURATION = 3;
+
 let audioReady = false;
 let audioUnlocked = false;
+
+// traccia persistente dei tocchi
+let trails = [];
 
 // =====================
 // AUDIO MAPPING
@@ -83,15 +79,19 @@ canvas.addEventListener("pointermove", e => {
 });
 
 // =====================
-// TAP / CLICK (mobile + desktop)
+// TAP / CLICK
 // =====================
 async function handleActivation(e) {
-  if (!audioReady) return;
-
   const r = canvas.getBoundingClientRect();
   const x = e.clientX - r.left;
+  const y = e.clientY - r.top;
 
-  // unlock audio on first gesture
+  // aggiunge traccia visiva persistente
+  trails.push({ x, y, life: 1.0 });
+
+  if (!audioReady) return;
+
+  // unlock audio
   if (!audioUnlocked) {
     try {
       await audio.play();
@@ -109,18 +109,29 @@ async function handleActivation(e) {
 canvas.addEventListener("pointerdown", handleActivation);
 
 // =====================
-// VISUAL TOUCH FEEDBACK
+// UPDATE TRAILS
 // =====================
-function drawTouchIndicator() {
-  ctx.beginPath();
-  ctx.arc(mouse.x, mouse.y, 6, 0, Math.PI * 2);
-  ctx.strokeStyle = "#000";
-  ctx.lineWidth = 1;
-  ctx.stroke();
+function updateTrails() {
+  trails = trails
+    .map(t => ({ ...t, life: t.life - 0.02 }))
+    .filter(t => t.life > 0);
 }
 
 // =====================
-// RUMORE TV
+// DRAW TRAILS
+// =====================
+function drawTrails() {
+  trails.forEach(t => {
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, 8 * t.life, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(0,0,0,${t.life})`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+}
+
+// =====================
+// NOISE
 // =====================
 function drawNoise() {
   const size = 2;
@@ -131,11 +142,6 @@ function drawNoise() {
       ctx.fillRect(x, y, size, size);
     }
   }
-
-  for (let y = 0; y < H; y += 5) {
-    ctx.fillStyle = `rgba(0,0,0,${Math.random()*0.08})`;
-    ctx.fillRect(0, y + Math.random()*2, W, 1);
-  }
 }
 
 // =====================
@@ -145,45 +151,16 @@ function drawCluster() {
   if (mouse.stillness < 0.02) return;
 
   const strength = mouse.stillness;
-  const blobs = 220;
-  const spread = 30;
+  const blobs = 120;
+  const spread = 25;
 
   for (let i = 0; i < blobs; i++) {
     const ox = (Math.random() - 0.5) * spread;
     const oy = (Math.random() - 0.5) * spread;
 
-    const w = 2 + Math.random() * 5;
-    const h = 3 + Math.random() * 5;
-
-    const r = 160 + Math.random()*40;
-    const g = 175 + Math.random()*30;
-    const b = 70 + Math.random()*40;
-
-    ctx.fillStyle = `rgba(${r},${g},${b},${0.25 * strength})`;
-    ctx.fillRect(mouse.x + ox, mouse.y + oy, w, h);
-  }
-
-  for (let i = 0; i < 300; i++) {
-    const ox = (Math.random() - 0.5) * spread;
-    const oy = (Math.random() - 0.5) * spread;
-    ctx.fillStyle = `rgba(0,0,0,${0.35 * strength})`;
+    ctx.fillStyle = `rgba(0,0,0,${0.2 * strength})`;
     ctx.fillRect(mouse.x + ox, mouse.y + oy, 2, 2);
   }
-}
-
-// =====================
-// LOADING TEXT
-// =====================
-let text = "audio loading";
-let cursor = 0;
-
-function drawLoading() {
-  if (audioReady) return;
-  cursor += 1;
-  ctx.fillStyle = "#000";
-  ctx.font = "22px monospace";
-  ctx.textAlign = "center";
-  ctx.fillText(text.slice(0, Math.floor(cursor)), W/2, H/2);
 }
 
 // =====================
@@ -191,10 +168,13 @@ function drawLoading() {
 // =====================
 function animate() {
   ctx.clearRect(0,0,W,H);
+
   drawNoise();
   drawCluster();
-  drawTouchIndicator();
-  drawLoading();
+
+  updateTrails();
+  drawTrails();
+
   requestAnimationFrame(animate);
 }
 animate();
