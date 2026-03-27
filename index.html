@@ -5,21 +5,20 @@
 <title>n o t  a l l  s t a t i c  i s  m u t e</title>
 
 <style>
-  body {
-    margin: 0;
-    background: #ffffff;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100vh;
-    font-family: Arial, Helvetica, sans-serif;
-  }
+body {
+  margin: 0;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+}
 
-  canvas {
-    border: 1px solid #000;
-    touch-action: none;
-  }
+canvas {
+  border: 1px solid #000;
+  touch-action: none;
+}
 </style>
 </head>
 
@@ -45,11 +44,11 @@ const SEGMENT_DURATION = 3;
 let audioReady = false;
 let audioUnlocked = false;
 
-// traccia persistente dei tocchi
-let trails = [];
+// tracce visive
+let clicks = [];
 
 // =====================
-// AUDIO MAPPING
+// AUDIO MAP
 // =====================
 function mouseToTime(x) {
   const dur = audio.duration || 60;
@@ -57,81 +56,69 @@ function mouseToTime(x) {
 }
 
 // =====================
-// POINTER TRACKING
+// UNLOCK AUDIO (critico su mobile)
 // =====================
-let mouse = { x: W/2, y: H/2, stillness: 0 };
-let last = null;
+function unlockAudio() {
+  if (audioUnlocked) return;
 
-canvas.addEventListener("pointermove", e => {
-  const r = canvas.getBoundingClientRect();
-  const x = e.clientX - r.left;
-  const y = e.clientY - r.top;
+  const silent = audio.play();
+  if (silent !== undefined) {
+    silent.then(() => {
+      audio.pause();
+      audio.currentTime = 0;
+      audioUnlocked = true;
+    }).catch(() => {});
+  }
+}
 
-  if (last) {
-    const d = Math.hypot(x - last.x, y - last.y);
-    mouse.stillness += (d < 1.2) ? 0.12 : -0.18;
-    mouse.stillness = Math.max(0, Math.min(mouse.stillness, 1));
+// =====================
+// INPUT HANDLER (robusto)
+// =====================
+function getXY(e) {
+  const rect = canvas.getBoundingClientRect();
+
+  // offsetX/Y più affidabili su canvas
+  let x = e.offsetX;
+  let y = e.offsetY;
+
+  // fallback touch
+  if (x === undefined) {
+    x = e.touches ? e.touches[0].clientX - rect.left : 0;
+    y = e.touches ? e.touches[0].clientY - rect.top : 0;
   }
 
-  mouse.x = x;
-  mouse.y = y;
-  last = { x, y };
-});
+  return { x, y };
+}
 
 // =====================
-// TAP / CLICK
+// POINTER / TOUCH DOWN
 // =====================
-async function handleActivation(e) {
-  const r = canvas.getBoundingClientRect();
-  const x = e.clientX - r.left;
-  const y = e.clientY - r.top;
+function handleDown(e) {
+  e.preventDefault();
 
-  // aggiunge traccia visiva persistente
-  trails.push({ x, y, life: 1.0 });
+  unlockAudio();
+
+  const { x, y } = getXY(e);
+
+  // traccia visiva immediata
+  clicks.push({ x, y, life: 1 });
 
   if (!audioReady) return;
 
-  // unlock audio
-  if (!audioUnlocked) {
-    try {
-      await audio.play();
-      audio.pause();
-      audioUnlocked = true;
-    } catch {}
-  }
-
   audio.currentTime = mouseToTime(x);
+
   audio.play().catch(()=>{});
 
-  setTimeout(() => audio.pause(), SEGMENT_DURATION * 1000);
+  setTimeout(() => {
+    audio.pause();
+  }, SEGMENT_DURATION * 1000);
 }
 
-canvas.addEventListener("pointerdown", handleActivation);
+canvas.addEventListener("pointerdown", handleDown, { passive: false });
+canvas.addEventListener("touchstart", handleDown, { passive: false });
 
 // =====================
-// UPDATE TRAILS
-// =====================
-function updateTrails() {
-  trails = trails
-    .map(t => ({ ...t, life: t.life - 0.02 }))
-    .filter(t => t.life > 0);
-}
-
-// =====================
-// DRAW TRAILS
-// =====================
-function drawTrails() {
-  trails.forEach(t => {
-    ctx.beginPath();
-    ctx.arc(t.x, t.y, 8 * t.life, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(0,0,0,${t.life})`;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-  });
-}
-
-// =====================
-// NOISE
+// DRAW
 // =====================
 function drawNoise() {
   const size = 2;
@@ -144,36 +131,28 @@ function drawNoise() {
   }
 }
 
-// =====================
-// CLUSTER
-// =====================
-function drawCluster() {
-  if (mouse.stillness < 0.02) return;
+// tracce persistenti
+function drawClicks() {
+  clicks.forEach(c => {
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, 10 * c.life, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(0,0,0,${c.life})`;
+    ctx.stroke();
 
-  const strength = mouse.stillness;
-  const blobs = 120;
-  const spread = 25;
+    c.life -= 0.03;
+  });
 
-  for (let i = 0; i < blobs; i++) {
-    const ox = (Math.random() - 0.5) * spread;
-    const oy = (Math.random() - 0.5) * spread;
-
-    ctx.fillStyle = `rgba(0,0,0,${0.2 * strength})`;
-    ctx.fillRect(mouse.x + ox, mouse.y + oy, 2, 2);
-  }
+  clicks = clicks.filter(c => c.life > 0);
 }
 
 // =====================
 // LOOP
 // =====================
 function animate() {
-  ctx.clearRect(0,0,W,H);
+  ctx.clearRect(0, 0, W, H);
 
   drawNoise();
-  drawCluster();
-
-  updateTrails();
-  drawTrails();
+  drawClicks();
 
   requestAnimationFrame(animate);
 }
