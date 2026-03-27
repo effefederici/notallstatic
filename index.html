@@ -60,29 +60,31 @@ function mouseToTime(x) {
 }
 
 // =====================
-// MOUSE / POINTER TRACKING
+// POINTER (UNIFIED INPUT)
 // =====================
 let mouse = { x: W/2, y: H/2, stillness: 0 };
 let last = null;
 
-// mouse (desktop)
-canvas.addEventListener("mousemove", e => {
+canvas.addEventListener("pointerdown", e => {
+  canvas.setPointerCapture(e.pointerId);
+
+  unlockAudio();
+
   const r = canvas.getBoundingClientRect();
   const x = e.clientX - r.left;
   const y = e.clientY - r.top;
 
-  if (last) {
-    const d = Math.hypot(x - last.x, y - last.y);
-    mouse.stillness += (d < 1.2) ? 0.12 : -0.18;
-    mouse.stillness = Math.max(0, Math.min(mouse.stillness, 1));
-  }
-
   mouse.x = x;
   mouse.y = y;
   last = { x, y };
+
+  if (audioReady) {
+    audio.currentTime = mouseToTime(x);
+    audio.play().catch(()=>{});
+    setTimeout(() => audio.pause(), SEGMENT_DURATION * 1000);
+  }
 });
 
-// pointer (tablet + unified)
 canvas.addEventListener("pointermove", e => {
   const r = canvas.getBoundingClientRect();
   const x = e.clientX - r.left;
@@ -100,7 +102,7 @@ canvas.addEventListener("pointermove", e => {
 });
 
 // =====================
-// AUDIO UNLOCK (mobile-safe)
+// AUDIO UNLOCK
 // =====================
 let unlocked = false;
 
@@ -118,68 +120,37 @@ function unlockAudio() {
 }
 
 // =====================
-// CLICK / TAP → AUDIO
+// NOISE (OPTIMIZED)
 // =====================
+let noiseImage = ctx.createImageData(W, H);
 
-// desktop click
-canvas.addEventListener("click", e => {
-  if (!audioReady) return;
-
-  const r = canvas.getBoundingClientRect();
-  const x = e.clientX - r.left;
-
-  audio.currentTime = mouseToTime(x);
-  audio.play().catch(()=>{});
-
-  setTimeout(() => audio.pause(), SEGMENT_DURATION * 1000);
-});
-
-// tablet / pointer
-canvas.addEventListener("pointerdown", e => {
-  if (!audioReady) return;
-
-  unlockAudio();
-
-  const r = canvas.getBoundingClientRect();
-  const x = e.clientX - r.left;
-
-  audio.currentTime = mouseToTime(x);
-
-  const p = audio.play();
-  if (p !== undefined) {
-    p.catch(()=>{});
-  }
-
-  setTimeout(() => audio.pause(), SEGMENT_DURATION * 1000);
-}, { passive: true });
-
-// =====================
-// RUMORE TV
-// =====================
 function drawNoise() {
-  const size = 2;
-  for (let y = 0; y < H; y += size) {
-    for (let x = 0; x < W; x += size) {
-      const v = 200 + Math.random() * 100;
-      ctx.fillStyle = `rgb(${v},${v},${v})`;
-      ctx.fillRect(x, y, size, size);
-    }
+  const data = noiseImage.data;
+
+  for (let i = 0; i < data.length; i += 4) {
+    const v = 200 + Math.random() * 55;
+    data[i] = v;
+    data[i+1] = v;
+    data[i+2] = v;
+    data[i+3] = 255;
   }
 
-  for (let y = 0; y < H; y += 5) {
-    ctx.fillStyle = `rgba(0,0,0,${Math.random()*0.08})`;
-    ctx.fillRect(0, y + Math.random()*2, W, 1);
+  ctx.putImageData(noiseImage, 0, 0);
+
+  ctx.fillStyle = "rgba(0,0,0,0.06)";
+  for (let y = 0; y < H; y += 6) {
+    ctx.fillRect(0, y, W, 1);
   }
 }
 
 // =====================
-// ADDENSAMENTO IRREGOLARE
+// CLUSTER
 // =====================
 function drawCluster() {
   if (mouse.stillness < 0.02) return;
 
   const strength = mouse.stillness;
-  const blobs = 220;
+  const blobs = 140;
   const spread = 30;
 
   for (let i = 0; i < blobs; i++) {
@@ -197,7 +168,7 @@ function drawCluster() {
     ctx.fillRect(mouse.x + ox, mouse.y + oy, w, h);
   }
 
-  for (let i = 0; i < 300; i++) {
+  for (let i = 0; i < 180; i++) {
     const ox = (Math.random() - 0.5) * spread;
     const oy = (Math.random() - 0.5) * spread;
     ctx.fillStyle = `rgba(0,0,0,${0.35 * strength})`;
@@ -221,18 +192,30 @@ function drawLoading() {
 }
 
 // =====================
-// LOOP
+// LOOP (LIMITED FPS)
 // =====================
-function animate() {
+let lastFrame = 0;
+const FPS = 30;
+
+function animate(t) {
+  if (t - lastFrame < 1000 / FPS) {
+    requestAnimationFrame(animate);
+    return;
+  }
+  lastFrame = t;
+
   ctx.clearRect(0,0,W,H);
   drawNoise();
   drawCluster();
   drawLoading();
+
   requestAnimationFrame(animate);
 }
-animate();
+requestAnimationFrame(animate);
 
-// audio ready
+// =====================
+// AUDIO READY
+// =====================
 audio.addEventListener("canplaythrough", () => {
   audioReady = true;
 });
