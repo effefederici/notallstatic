@@ -9,9 +9,8 @@ body {
   margin: 0;
   background: #ffffff;
   display: flex;
-  flex-direction: column;
-  align-items: center;
   justify-content: center;
+  align-items: center;
   height: 100vh;
 }
 
@@ -28,6 +27,7 @@ canvas {
 
 <audio id="bgAudio"
   src="https://archive.org/download/not_all_static/not_all_static.mp3"
+  preload="auto"
   crossorigin="anonymous">
 </audio>
 
@@ -41,29 +41,37 @@ const H = canvas.height;
 
 const SEGMENT_DURATION = 3;
 
-let audioReady = false;
 let audioUnlocked = false;
-
-// tracce visive
 let clicks = [];
 
 // =====================
-// AUDIO MAP
+// WAIT FOR METADATA
+// =====================
+audio.addEventListener("loadedmetadata", () => {
+  // metadata ready
+});
+
+// =====================
+// AUDIO MAPPING
 // =====================
 function mouseToTime(x) {
-  const dur = audio.duration || 60;
-  return Math.min((x / W) * dur, dur - SEGMENT_DURATION);
+  const dur = (isFinite(audio.duration) && audio.duration > 0)
+    ? audio.duration
+    : 60; // fallback
+
+  const t = (x / W) * dur;
+  return Math.min(t, dur - SEGMENT_DURATION);
 }
 
 // =====================
-// UNLOCK AUDIO (critico su mobile)
+// UNLOCK AUDIO (sync-safe)
 // =====================
 function unlockAudio() {
   if (audioUnlocked) return;
 
-  const silent = audio.play();
-  if (silent !== undefined) {
-    silent.then(() => {
+  const p = audio.play();
+  if (p !== undefined) {
+    p.then(() => {
       audio.pause();
       audio.currentTime = 0;
       audioUnlocked = true;
@@ -72,50 +80,39 @@ function unlockAudio() {
 }
 
 // =====================
-// INPUT HANDLER (robusto)
+// INPUT
 // =====================
-function getXY(e) {
-  const rect = canvas.getBoundingClientRect();
-
-  // offsetX/Y più affidabili su canvas
-  let x = e.offsetX;
-  let y = e.offsetY;
-
-  // fallback touch
-  if (x === undefined) {
-    x = e.touches ? e.touches[0].clientX - rect.left : 0;
-    y = e.touches ? e.touches[0].clientY - rect.top : 0;
-  }
-
-  return { x, y };
-}
-
-// =====================
-// POINTER / TOUCH DOWN
-// =====================
-function handleDown(e) {
+canvas.addEventListener("pointerdown", (e) => {
   e.preventDefault();
 
-  unlockAudio();
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
 
-  const { x, y } = getXY(e);
-
-  // traccia visiva immediata
+  // visual feedback
   clicks.push({ x, y, life: 1 });
 
-  if (!audioReady) return;
+  // unlock audio FIRST
+  unlockAudio();
 
-  audio.currentTime = mouseToTime(x);
+  // ensure metadata is loaded
+  if (!isFinite(audio.duration)) {
+    audio.load();
+  }
 
-  audio.play().catch(()=>{});
+  // IMPORTANT: direct call in gesture context
+  const t = mouseToTime(x);
+  audio.currentTime = t;
+
+  const playPromise = audio.play();
+  if (playPromise !== undefined) {
+    playPromise.catch(() => {});
+  }
 
   setTimeout(() => {
     audio.pause();
   }, SEGMENT_DURATION * 1000);
-}
-
-canvas.addEventListener("pointerdown", handleDown, { passive: false });
-canvas.addEventListener("touchstart", handleDown, { passive: false });
+}, { passive: false });
 
 // =====================
 // DRAW
@@ -131,7 +128,6 @@ function drawNoise() {
   }
 }
 
-// tracce persistenti
 function drawClicks() {
   clicks.forEach(c => {
     ctx.beginPath();
@@ -150,18 +146,11 @@ function drawClicks() {
 // =====================
 function animate() {
   ctx.clearRect(0, 0, W, H);
-
   drawNoise();
   drawClicks();
-
   requestAnimationFrame(animate);
 }
 animate();
-
-// audio ready
-audio.addEventListener("canplaythrough", () => {
-  audioReady = true;
-});
 </script>
 
 </body>
