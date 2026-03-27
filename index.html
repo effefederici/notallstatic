@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>n o t  a l l  s t a t i c  i s  m u t e</title>
+
 <style>
   body {
     margin: 0;
@@ -14,9 +15,12 @@
     height: 100vh;
     font-family: Arial, Helvetica, sans-serif;
   }
+
   canvas {
     border: 1px solid #000;
+    touch-action: none;
   }
+
   .caption {
     width: 700px;
     margin-top: 14px;
@@ -26,6 +30,7 @@
   }
 </style>
 </head>
+
 <body>
 
 <canvas id="canvas" width="700" height="700"></canvas>
@@ -45,10 +50,10 @@ const H = canvas.height;
 
 const SEGMENT_DURATION = 3;
 let audioReady = false;
+let audioUnlocked = false;
 
 // =====================
 // AUDIO MAPPING
-// parametro: mouseX / canvas.width * audio.duration
 // =====================
 function mouseToTime(x) {
   const dur = audio.duration || 60;
@@ -56,19 +61,18 @@ function mouseToTime(x) {
 }
 
 // =====================
-// MOUSE TRACKING (reattivo)
+// POINTER TRACKING
 // =====================
 let mouse = { x: W/2, y: H/2, stillness: 0 };
 let last = null;
 
-canvas.addEventListener("mousemove", e => {
+canvas.addEventListener("pointermove", e => {
   const r = canvas.getBoundingClientRect();
   const x = e.clientX - r.left;
   const y = e.clientY - r.top;
 
   if (last) {
     const d = Math.hypot(x - last.x, y - last.y);
-    // risposta molto rapida
     mouse.stillness += (d < 1.2) ? 0.12 : -0.18;
     mouse.stillness = Math.max(0, Math.min(mouse.stillness, 1));
   }
@@ -79,23 +83,47 @@ canvas.addEventListener("mousemove", e => {
 });
 
 // =====================
-// CLICK = ESTRAZIONE AUDIO
+// TAP / CLICK (mobile + desktop)
 // =====================
-canvas.addEventListener("click", e => {
+async function handleActivation(e) {
   if (!audioReady) return;
+
   const r = canvas.getBoundingClientRect();
   const x = e.clientX - r.left;
 
+  // unlock audio on first gesture
+  if (!audioUnlocked) {
+    try {
+      await audio.play();
+      audio.pause();
+      audioUnlocked = true;
+    } catch {}
+  }
+
   audio.currentTime = mouseToTime(x);
   audio.play().catch(()=>{});
+
   setTimeout(() => audio.pause(), SEGMENT_DURATION * 1000);
-});
+}
+
+canvas.addEventListener("pointerdown", handleActivation);
 
 // =====================
-// RUMORE TV (più granuloso)
+// VISUAL TOUCH FEEDBACK
+// =====================
+function drawTouchIndicator() {
+  ctx.beginPath();
+  ctx.arc(mouse.x, mouse.y, 6, 0, Math.PI * 2);
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
+// =====================
+// RUMORE TV
 // =====================
 function drawNoise() {
-  const size = 2; // pixel grossi
+  const size = 2;
   for (let y = 0; y < H; y += size) {
     for (let x = 0; x < W; x += size) {
       const v = 200 + Math.random() * 100;
@@ -111,7 +139,7 @@ function drawNoise() {
 }
 
 // =====================
-// ADDENSAMENTO IRREGOLARE
+// CLUSTER
 // =====================
 function drawCluster() {
   if (mouse.stillness < 0.02) return;
@@ -135,7 +163,6 @@ function drawCluster() {
     ctx.fillRect(mouse.x + ox, mouse.y + oy, w, h);
   }
 
-  // grana nera aggressiva
   for (let i = 0; i < 300; i++) {
     const ox = (Math.random() - 0.5) * spread;
     const oy = (Math.random() - 0.5) * spread;
@@ -145,7 +172,7 @@ function drawCluster() {
 }
 
 // =====================
-// TYPEWRITER LOADING
+// LOADING TEXT
 // =====================
 let text = "audio loading";
 let cursor = 0;
@@ -166,11 +193,13 @@ function animate() {
   ctx.clearRect(0,0,W,H);
   drawNoise();
   drawCluster();
+  drawTouchIndicator();
   drawLoading();
   requestAnimationFrame(animate);
 }
 animate();
 
+// audio ready
 audio.addEventListener("canplaythrough", () => {
   audioReady = true;
 });
