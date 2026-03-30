@@ -19,13 +19,6 @@
     border: 1px solid #000;
     touch-action: none;
   }
-  .caption {
-    width: 500px;
-    margin-top: 14px;
-    font-size: 13px;
-    line-height: 1.35;
-    color: #111;
-  }
 </style>
 </head>
 
@@ -35,7 +28,6 @@
 
 <audio id="bgAudio"
   src="https://archive.org/download/not_all_static/not_all_static.mp3"
-  crossorigin="anonymous"
   preload="auto"
   playsinline>
 </audio>
@@ -49,60 +41,31 @@ const W = canvas.width;
 const H = canvas.height;
 
 const SEGMENT_DURATION = 3;
+
+// ⚠️ NON aspettiamo più canplaythrough
 let audioReady = false;
 
 // =====================
 // AUDIO MAPPING
 // =====================
-function mouseToTime(x) {
+function pointerToTime(x) {
   const dur = audio.duration || 60;
   return Math.min((x / W) * dur, dur - SEGMENT_DURATION);
 }
 
 // =====================
-// POINTER (UNIFIED INPUT)
+// POINTER STATE
 // =====================
-let mouse = { x: W/2, y: H/2, stillness: 0 };
+let pointer = { x: W/2, y: H/2, stillness: 0 };
 let last = null;
 
-canvas.addEventListener("pointerdown", e => {
-  canvas.setPointerCapture(e.pointerId);
-
-  unlockAudio();
-
-  const r = canvas.getBoundingClientRect();
-  const x = e.clientX - r.left;
-  const y = e.clientY - r.top;
-
-  mouse.x = x;
-  mouse.y = y;
-  last = { x, y };
-
-  if (audioReady) {
-    audio.currentTime = mouseToTime(x);
-    audio.play().catch(()=>{});
-    setTimeout(() => audio.pause(), SEGMENT_DURATION * 1000);
-  }
-});
-
-canvas.addEventListener("pointermove", e => {
-  const r = canvas.getBoundingClientRect();
-  const x = e.clientX - r.left;
-  const y = e.clientY - r.top;
-
-  if (last) {
-    const d = Math.hypot(x - last.x, y - last.y);
-    mouse.stillness += (d < 1.2) ? 0.12 : -0.18;
-    mouse.stillness = Math.max(0, Math.min(mouse.stillness, 1));
-  }
-
-  mouse.x = x;
-  mouse.y = y;
-  last = { x, y };
-});
+// =====================
+// DEVICE DETECTION
+// =====================
+const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
 
 // =====================
-// AUDIO UNLOCK
+// AUDIO UNLOCK (FIX iPad)
 // =====================
 let unlocked = false;
 
@@ -115,12 +78,130 @@ function unlockAudio() {
       audio.pause();
       audio.currentTime = 0;
       unlocked = true;
+      audioReady = true; // ✅ attiviamo qui
     }).catch(()=>{});
   }
 }
 
 // =====================
-// NOISE (OPTIMIZED)
+// PLAY SEGMENT (FIX)
+// =====================
+function playSegment(x){
+  if (!audioReady) return;
+
+  try {
+    audio.pause(); // importante su iPad
+    audio.currentTime = pointerToTime(x);
+
+    const p = audio.play();
+    if (p !== undefined) {
+      p.catch(()=>{});
+    }
+
+    setTimeout(() => {
+      audio.pause();
+    }, SEGMENT_DURATION * 1000);
+
+  } catch(e){}
+}
+
+// =====================
+// DESKTOP
+// =====================
+if(!isTouchDevice){
+
+  canvas.addEventListener("pointerdown", e => {
+    canvas.setPointerCapture(e.pointerId);
+    unlockAudio();
+
+    const r = canvas.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+
+    pointer.x = x;
+    pointer.y = y;
+    last = { x, y };
+
+    playSegment(x);
+  });
+
+  canvas.addEventListener("pointermove", e => {
+    const r = canvas.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+
+    if (last) {
+      const d = Math.hypot(x - last.x, y - last.y);
+      pointer.stillness += (d < 1.2) ? 0.12 : -0.18;
+      pointer.stillness = Math.max(0, Math.min(pointer.stillness, 1));
+    }
+
+    pointer.x = x;
+    pointer.y = y;
+    last = { x, y };
+  });
+
+} else {
+
+  // =====================
+  // TABLET / iPad FIX
+  // =====================
+  let isTouching = false;
+
+  canvas.addEventListener("touchstart", e => {
+    e.preventDefault();
+
+    unlockAudio(); // ⚠️ fondamentale
+
+    isTouching = true;
+
+    const t = e.touches[0];
+    const r = canvas.getBoundingClientRect();
+
+    const x = t.clientX - r.left;
+    const y = t.clientY - r.top;
+
+    pointer.x = x;
+    pointer.y = y;
+    last = { x, y };
+
+    // ⚠️ piccolo delay = stabilità WebKit
+    setTimeout(() => {
+      playSegment(x);
+    }, 30);
+
+  }, {passive:false});
+
+  canvas.addEventListener("touchmove", e => {
+    e.preventDefault();
+    if(!isTouching) return;
+
+    const t = e.touches[0];
+    const r = canvas.getBoundingClientRect();
+
+    const x = t.clientX - r.left;
+    const y = t.clientY - r.top;
+
+    if (last) {
+      const d = Math.hypot(x - last.x, y - last.y);
+      pointer.stillness += (d < 1.2) ? 0.12 : -0.18;
+      pointer.stillness = Math.max(0, Math.min(pointer.stillness, 1));
+    }
+
+    pointer.x = x;
+    pointer.y = y;
+    last = { x, y };
+
+  }, {passive:false});
+
+  canvas.addEventListener("touchend", ()=>{
+    isTouching = false;
+  });
+
+}
+
+// =====================
+// NOISE
 // =====================
 let noiseImage = ctx.createImageData(W, H);
 
@@ -147,78 +228,29 @@ function drawNoise() {
 // CLUSTER
 // =====================
 function drawCluster() {
-  if (mouse.stillness < 0.02) return;
+  if (pointer.stillness < 0.02) return;
 
-  const strength = mouse.stillness;
-  const blobs = 140;
-  const spread = 30;
+  const strength = pointer.stillness;
 
-  for (let i = 0; i < blobs; i++) {
-    const ox = (Math.random() - 0.5) * spread;
-    const oy = (Math.random() - 0.5) * spread;
+  for (let i = 0; i < 140; i++) {
+    const ox = (Math.random() - 0.5) * 30;
+    const oy = (Math.random() - 0.5) * 30;
 
-    const w = 2 + Math.random() * 5;
-    const h = 3 + Math.random() * 5;
-
-    const r = 160 + Math.random()*40;
-    const g = 175 + Math.random()*30;
-    const b = 70 + Math.random()*40;
-
-    ctx.fillStyle = `rgba(${r},${g},${b},${0.25 * strength})`;
-    ctx.fillRect(mouse.x + ox, mouse.y + oy, w, h);
-  }
-
-  for (let i = 0; i < 180; i++) {
-    const ox = (Math.random() - 0.5) * spread;
-    const oy = (Math.random() - 0.5) * spread;
-    ctx.fillStyle = `rgba(0,0,0,${0.35 * strength})`;
-    ctx.fillRect(mouse.x + ox, mouse.y + oy, 2, 2);
+    ctx.fillStyle = `rgba(180,180,90,${0.25 * strength})`;
+    ctx.fillRect(pointer.x + ox, pointer.y + oy, 3, 3);
   }
 }
 
 // =====================
-// LOADING
+// LOOP
 // =====================
-let text = "audio loading";
-let cursor = 0;
-
-function drawLoading() {
-  if (audioReady) return;
-  cursor += 1;
-  ctx.fillStyle = "#000";
-  ctx.font = "22px monospace";
-  ctx.textAlign = "center";
-  ctx.fillText(text.slice(0, Math.floor(cursor)), W/2, H/2);
-}
-
-// =====================
-// LOOP (LIMITED FPS)
-// =====================
-let lastFrame = 0;
-const FPS = 30;
-
-function animate(t) {
-  if (t - lastFrame < 1000 / FPS) {
-    requestAnimationFrame(animate);
-    return;
-  }
-  lastFrame = t;
-
+function animate() {
   ctx.clearRect(0,0,W,H);
   drawNoise();
   drawCluster();
-  drawLoading();
-
   requestAnimationFrame(animate);
 }
-requestAnimationFrame(animate);
-
-// =====================
-// AUDIO READY
-// =====================
-audio.addEventListener("canplaythrough", () => {
-  audioReady = true;
-});
+animate();
 </script>
 
 </body>
